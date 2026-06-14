@@ -760,6 +760,14 @@ async function guardarEvento(){
   if(!titulo){ showToast('Ingresá un título'); return; }
   const fecha=document.getElementById('evFecha').value;
   if(!fecha){ showToast('Elegí una fecha'); return; }
+
+  // Bloquear botón para evitar guardados múltiples
+  const btn = document.querySelector('#overlayEvento .btn-primary');
+  if(btn.disabled) return; // ya está guardando
+  btn.disabled = true;
+  btn.textContent = 'Guardando...';
+  btn.style.opacity = '0.7';
+
   const ev={
     id: editId || crypto.randomUUID(),
     titulo, fecha,
@@ -770,14 +778,21 @@ async function guardarEvento(){
     desc: document.getElementById('evDesc').value.trim(),
     recordatorio: document.getElementById('evRecordatorio').value
   };
+
   const ok=await upsertEvento(ev);
+
+  // Rehabilitar botón siempre
+  btn.disabled = false;
+  btn.textContent = 'Guardar';
+  btn.style.opacity = '1';
+
   if(!ok) return;
   if(editId){ const idx=EVENTOS.findIndex(e=>e.id===editId); if(idx>=0) EVENTOS[idx]=ev; }
   else { EVENTOS.push(ev); }
   programarRecordatorio(ev);
   cerrarEvento();
   render();
-  showToast(editId?'Evento actualizado':'Evento guardado');
+  showToast(editId ? '✅ Evento actualizado' : '✅ Evento guardado');
 }
 
 function editarEvento(id){
@@ -797,12 +812,13 @@ function editarEvento(id){
 }
 
 async function eliminarEvento(id){
-  if(!confirm('¿Eliminar este evento?')) return;
-  const ok=await borrarEvento(id);
-  if(!ok) return;
-  EVENTOS=EVENTOS.filter(e=>e.id!==id);
+  if(!confirm("¿Eliminar este evento?")) return;
+  EVENTOS = EVENTOS.filter(e => e.id !== id);
   render();
-  showToast('Evento eliminado');
+  showToast("🗑️ Eliminando...");
+  const ok = await borrarEvento(id);
+  if(!ok){ await cargarEventos(); showToast("Error al eliminar"); }
+  else { showToast("🗑️ Evento eliminado"); }
 }
 
 // ═══════════════════════════════════════════════
@@ -890,23 +906,46 @@ async function guardarConfig(){
 // ═══════════════════════════════════════════════
 async function pedirPermiso(){
   if(!('Notification' in window)){ showToast('Tu navegador no soporta notificaciones'); return; }
-  const perm=await Notification.requestPermission();
-  document.getElementById('notifStatus').textContent=perm;
-  if(perm==='granted'){ showToast('Notificaciones activadas'); EVENTOS.forEach(programarRecordatorio); }
-  else showToast('Notificaciones no permitidas');
+  const perm = await Notification.requestPermission();
+  document.getElementById('notifStatus').textContent = perm;
+  if(perm === 'granted'){
+    showToast('🔔 Notificaciones activadas');
+    sincronizarAlarmas();
+  } else {
+    showToast('Notificaciones no permitidas — activálas en configuración del navegador');
+  }
+}
+
+// Manda TODOS los eventos futuros al SW de una sola vez
+function sincronizarAlarmas(){
+  if(Notification.permission !== 'granted') return;
+  if(!('serviceWorker' in navigator)) return;
+  const futuros = EVENTOS.filter(ev => {
+    if(!ev.recordatorio || !ev.hora) return false;
+    const evDate = new Date(ev.fecha + 'T' + ev.hora + ':00');
+    const notifDate = new Date(evDate.getTime() - ev.recordatorio * 60 * 1000);
+    return notifDate.getTime() > Date.now();
+  });
+  navigator.serviceWorker.ready.then(reg => {
+    reg.active.postMessage({ type: 'SYNC_ALARMS', eventos: futuros });
+  });
 }
 
 function programarRecordatorio(ev){
-  if(!ev.recordatorio||!ev.hora||Notification.permission!=='granted') return;
-  const evDate=new Date(ev.fecha+'T'+ev.hora+':00');
-  const notifDate=new Date(evDate.getTime()-ev.recordatorio*60*1000);
-  const ms=notifDate.getTime()-Date.now();
-  if(ms<=0) return;
-  if('serviceWorker' in navigator&&navigator.serviceWorker.controller){
-    navigator.serviceWorker.controller.postMessage({type:'SCHEDULE_ALARM',id:ev.id,ms,title:'⏰ '+ev.titulo,body:ev.hora+(ev.lugar?' — '+ev.lugar:'')});
-  } else {
-    setTimeout(()=>new Notification('⏰ '+ev.titulo,{body:ev.hora+(ev.lugar?' — '+ev.lugar:''),icon:'/icon-192.png'}),ms);
-  }
+  if(!ev.recordatorio || !ev.hora || Notification.permission !== 'granted') return;
+  const evDate = new Date(ev.fecha + 'T' + ev.hora + ':00');
+  const notifDate = new Date(evDate.getTime() - ev.recordatorio * 60 * 1000);
+  const ms = notifDate.getTime() - Date.now();
+  if(ms <= 0) return;
+  navigator.serviceWorker.ready.then(reg => {
+    reg.active.postMessage({
+      type: 'SCHEDULE_ALARM',
+      id: ev.id,
+      ms,
+      title: '⏰ ' + ev.titulo,
+      body: '📅 ' + ev.fecha + '  🕐 ' + ev.hora + (ev.lugar ? '\n📍 ' + ev.lugar : '')
+    });
+  });
 }
 
 // ═══════════════════════════════════════════════
@@ -985,39 +1024,61 @@ document.querySelectorAll('.overlay').forEach(o=>o.addEventListener('click',func
 //  SERVICE WORKER
 // ═══════════════════════════════════════════════
 if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('/sw.js').catch(e=>console.log('SW:',e));
+  navigator.serviceWorker.register('/sw.js').then(reg => {
+    console.log('SW ok:', reg.scope);
+  }).catch(e => console.log('SW error:', e));
 }
 
 // ═══════════════════════════════════════════════
 //  INIT — SUPABASE AUTH LISTENER
+//  Supabase guarda la sesión en localStorage automáticamente,
+//  por eso el usuario NO necesita loguearse cada vez.
 // ═══════════════════════════════════════════════
-sb.auth.onAuthStateChange(async (event, session) => {
-  const loading = document.getElementById('loadingOverlay');
-  const authScreen = document.getElementById('authScreen');
-  const appHeader = document.getElementById('appHeader');
-  const toolbar = document.getElementById('toolbar');
-  const scrollArea = document.getElementById('scrollArea');
-  const fabBtn = document.getElementById('fabBtn');
+function mostrarApp(){
+  document.getElementById('authScreen').style.display = 'none';
+  document.getElementById('appHeader').style.display = 'block';
+  document.getElementById('scrollArea').style.display = 'block';
+  document.getElementById('fabBtn').style.display = 'flex';
+  document.getElementById('loadingOverlay').classList.add('hide');
+  if(vistaActual !== 'lista') document.getElementById('toolbar').style.display = 'flex';
+}
 
+function mostrarAuth(){
+  document.getElementById('loadingOverlay').classList.add('hide');
+  document.getElementById('authScreen').style.display = 'flex';
+  document.getElementById('appHeader').style.display = 'none';
+  document.getElementById('toolbar').style.display = 'none';
+  document.getElementById('scrollArea').style.display = 'none';
+  document.getElementById('fabBtn').style.display = 'none';
+}
+
+sb.auth.onAuthStateChange(async (event, session) => {
   if(session?.user){
     USER = session.user;
-    authScreen.style.display = 'none';
-    appHeader.style.display = 'block';
-    scrollArea.style.display = 'block';
-    fabBtn.style.display = 'flex';
-    loading.classList.add('hide');
+    mostrarApp();
     await cargarConfig();
     await cargarEventos();
-    if(vistaActual !== 'lista') toolbar.style.display = 'flex';
-    if(Notification.permission==='granted') EVENTOS.forEach(programarRecordatorio);
+
+    // Pedir permiso de notificaciones automáticamente al entrar
+    if('Notification' in window){
+      if(Notification.permission === 'granted'){
+        // Ya tiene permiso — sincronizar todas las alarmas al SW
+        sincronizarAlarmas();
+      } else if(Notification.permission === 'default'){
+        // Pedir permiso 2 segundos después de que carga la app
+        setTimeout(async () => {
+          const perm = await Notification.requestPermission();
+          document.getElementById('notifStatus').textContent = perm;
+          if(perm === 'granted'){
+            showToast('🔔 Notificaciones activadas');
+            sincronizarAlarmas();
+          }
+        }, 2000);
+      }
+    }
   } else {
     USER = null;
-    loading.classList.add('hide');
-    authScreen.style.display = 'flex';
-    appHeader.style.display = 'none';
-    toolbar.style.display = 'none';
-    scrollArea.style.display = 'none';
-    fabBtn.style.display = 'none';
+    mostrarAuth();
   }
 });
 </script>
