@@ -444,8 +444,8 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);displ
 // ═══════════════════════════════════════════════
 //  SUPABASE CONFIG
 // ═══════════════════════════════════════════════
-const SUPA_URL = 'https://mleryiimiaxvyupxgywc.supabase.co';
-const SUPA_KEY = 'sb_publishable_UAqfW1Boe_o60a-9qMEZaA_jx6E45EE';
+const SUPA_URL = 'https://njsrqgkifiolgjdkyxzu.supabase.co';
+const SUPA_KEY = 'sb_publishable_4MNqf_3OiqSjqyIRp3yS_w_iKnjn08T';
 const { createClient } = supabase;
 const sb = createClient(SUPA_URL, SUPA_KEY);
 
@@ -496,32 +496,96 @@ function showAuthErr(msg){ const el=document.getElementById('authErr'); el.textC
 function showAuthMsg(msg){ const el=document.getElementById('authMsg'); el.textContent=msg; el.style.display=msg?'block':'none'; }
 
 // ═══════════════════════════════════════════════
-//  SUPABASE — EVENTOS
+//  LOCAL-FIRST: guarda inmediato en localStorage
+//  Supabase sincroniza en segundo plano
 // ═══════════════════════════════════════════════
+const LS_KEY = () => 'agenda_evs_' + (USER?.id || 'guest');
+const LS_CFG_KEY = () => 'agenda_cfg_' + (USER?.id || 'guest');
+const LS_SYNC_KEY = () => 'agenda_pending_' + (USER?.id || 'guest');
+
+function saveLocal(evs){ try{ localStorage.setItem(LS_KEY(), JSON.stringify(evs)); }catch(e){} }
+function loadLocal(){ try{ return JSON.parse(localStorage.getItem(LS_KEY())||'[]'); }catch(e){ return []; } }
+function saveCFGLocal(cfg){ try{ localStorage.setItem(LS_CFG_KEY(), JSON.stringify(cfg)); }catch(e){} }
+function loadCFGLocal(){ try{ return JSON.parse(localStorage.getItem(LS_CFG_KEY())||'null'); }catch(e){ return null; } }
+
+// Cola de operaciones pendientes para sync
+function addPending(op){ 
+  try{
+    const pending = JSON.parse(localStorage.getItem(LS_SYNC_KEY())||'[]');
+    pending.push(op);
+    localStorage.setItem(LS_SYNC_KEY(), JSON.stringify(pending));
+  }catch(e){}
+}
+function clearPending(){ try{ localStorage.removeItem(LS_SYNC_KEY()); }catch(e){} }
+function getPending(){ try{ return JSON.parse(localStorage.getItem(LS_SYNC_KEY())||'[]'); }catch(e){ return []; } }
+
 async function cargarEventos(){
+  // 1. Mostrar datos locales INMEDIATAMENTE (0ms de espera)
+  const local = loadLocal();
+  if(local.length > 0){
+    EVENTOS = local;
+    render();
+  }
+  // 2. Sincronizar con Supabase en background
   setSyncDot('syncing');
-  const { data, error } = await sb.from('eventos').select('*').eq('user_id', USER.id).order('fecha').order('hora');
-  if(error){ setSyncDot('error'); showToast('Error al cargar eventos'); return; }
-  EVENTOS = (data||[]).map(dbToLocal);
-  setSyncDot('ok');
-  render();
+  try {
+    const { data, error } = await sb.from('eventos').select('*').eq('user_id', USER.id).order('fecha').order('hora');
+    if(error){ setSyncDot('error'); return; }
+    EVENTOS = (data||[]).map(dbToLocal);
+    saveLocal(EVENTOS);
+    setSyncDot('ok');
+    render();
+    // Vaciar cola de pendientes
+    await flushPending();
+  } catch(e){
+    setSyncDot('error');
+  }
+}
+
+// Sincronizar operaciones que quedaron pendientes (sin conexión)
+async function flushPending(){
+  const pending = getPending();
+  if(!pending.length) return;
+  for(const op of pending){
+    try {
+      if(op.type === 'upsert'){
+        await sb.from('eventos').upsert(op.row, { onConflict: 'id' });
+      } else if(op.type === 'delete'){
+        await sb.from('eventos').delete().eq('id', op.id).eq('user_id', USER.id);
+      }
+    } catch(e){ return; } // si falla, dejamos para después
+  }
+  clearPending();
 }
 
 async function upsertEvento(ev){
-  setSyncDot('syncing');
+  // Guardar local INMEDIATO — el usuario no espera nada
   const row = localToDB(ev);
-  const { error } = await sb.from('eventos').upsert(row, { onConflict: 'id' });
-  if(error){ setSyncDot('error'); showToast('Error al guardar'); return false; }
-  setSyncDot('ok');
-  return true;
+  // Sync background con Supabase
+  setSyncDot('syncing');
+  sb.from('eventos').upsert(row, { onConflict: 'id' }).then(({error}) => {
+    if(error){ 
+      setSyncDot('error');
+      addPending({ type: 'upsert', row });
+    } else {
+      setSyncDot('ok');
+    }
+  });
+  return true; // retorna inmediato
 }
 
 async function borrarEvento(id){
+  // Sync background
   setSyncDot('syncing');
-  const { error } = await sb.from('eventos').delete().eq('id', id).eq('user_id', USER.id);
-  if(error){ setSyncDot('error'); showToast('Error al eliminar'); return false; }
-  setSyncDot('ok');
-  return true;
+  sb.from('eventos').delete().eq('id', id).eq('user_id', USER.id).then(({error}) => {
+    if(error){
+      setSyncDot('error');
+      addPending({ type: 'delete', id });
+    } else {
+      setSyncDot('ok');
+    }
+  });
+  return true; // retorna inmediato
 }
 
 function localToDB(ev){
@@ -557,28 +621,40 @@ function dbToLocal(row){
 //  SUPABASE — CONFIG
 // ═══════════════════════════════════════════════
 async function cargarConfig(){
-  const { data } = await sb.from('config').select('*').eq('user_id', USER.id).single();
-  if(data){
-    CFG = {
-      nombre: data.nombre || CFG.nombre,
-      sub: data.sub || CFG.sub,
-      color1: data.color1 || CFG.color1,
-      color2: data.color2 || CFG.color2,
-      cats: data.cats || CFG.cats
-    };
-  }
-  aplicarTema();
+  // 1. Cargar config local inmediato
+  const local = loadCFGLocal();
+  if(local){ CFG = { ...CFG, ...local }; aplicarTema(); }
+
+  // 2. Sync background
+  try {
+    const { data } = await sb.from('config').select('*').eq('user_id', USER.id).single();
+    if(data){
+      CFG = {
+        nombre: data.nombre || CFG.nombre,
+        sub: data.sub || CFG.sub,
+        color1: data.color1 || CFG.color1,
+        color2: data.color2 || CFG.color2,
+        cats: data.cats || CFG.cats
+      };
+      saveCFGLocal(CFG);
+      aplicarTema();
+    }
+  } catch(e) {}
 }
 
 async function guardarConfigDB(){
-  const { error } = await sb.from('config').upsert({
+  // Guardar local inmediato
+  saveCFGLocal(CFG);
+  showToast('✅ Configuración guardada');
+  // Sync background
+  sb.from('config').upsert({
     user_id: USER.id,
     nombre: CFG.nombre, sub: CFG.sub,
     color1: CFG.color1, color2: CFG.color2,
     cats: CFG.cats, actualizado_en: new Date().toISOString()
-  }, { onConflict: 'user_id' });
-  if(error){ showToast('Error al guardar config'); return; }
-  showToast('Configuración guardada');
+  }, { onConflict: 'user_id' }).then(({error}) => {
+    if(error) console.log('Config sync error:', error);
+  });
 }
 
 // ═══════════════════════════════════════════════
@@ -761,12 +837,10 @@ async function guardarEvento(){
   const fecha=document.getElementById('evFecha').value;
   if(!fecha){ showToast('Elegí una fecha'); return; }
 
-  // Bloquear botón para evitar guardados múltiples
+  // Evitar doble toque
   const btn = document.querySelector('#overlayEvento .btn-primary');
-  if(btn.disabled) return; // ya está guardando
+  if(btn.disabled) return;
   btn.disabled = true;
-  btn.textContent = 'Guardando...';
-  btn.style.opacity = '0.7';
 
   const ev={
     id: editId || crypto.randomUUID(),
@@ -779,20 +853,20 @@ async function guardarEvento(){
     recordatorio: document.getElementById('evRecordatorio').value
   };
 
-  const ok=await upsertEvento(ev);
-
-  // Rehabilitar botón siempre
-  btn.disabled = false;
-  btn.textContent = 'Guardar';
-  btn.style.opacity = '1';
-
-  if(!ok) return;
+  // ✅ GUARDAR LOCAL INMEDIATO — sin esperar red
   if(editId){ const idx=EVENTOS.findIndex(e=>e.id===editId); if(idx>=0) EVENTOS[idx]=ev; }
   else { EVENTOS.push(ev); }
-  programarRecordatorio(ev);
+  saveLocal(EVENTOS);
+
+  // Cerrar modal y mostrar resultado INSTANTÁNEO
+  btn.disabled = false;
   cerrarEvento();
   render();
   showToast(editId ? '✅ Evento actualizado' : '✅ Evento guardado');
+  programarRecordatorio(ev);
+
+  // Sync con Supabase en background (no bloquea UI)
+  upsertEvento(ev);
 }
 
 function editarEvento(id){
@@ -813,12 +887,13 @@ function editarEvento(id){
 
 async function eliminarEvento(id){
   if(!confirm("¿Eliminar este evento?")) return;
+  // Eliminar local INMEDIATO
   EVENTOS = EVENTOS.filter(e => e.id !== id);
+  saveLocal(EVENTOS);
   render();
-  showToast("🗑️ Eliminando...");
-  const ok = await borrarEvento(id);
-  if(!ok){ await cargarEventos(); showToast("Error al eliminar"); }
-  else { showToast("🗑️ Evento eliminado"); }
+  showToast("🗑️ Evento eliminado");
+  // Sync background
+  borrarEvento(id);
 }
 
 // ═══════════════════════════════════════════════
