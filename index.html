@@ -620,6 +620,30 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
+<!-- MODAL NÚMERO WHATSAPP -->
+<div class="overlay" id="overlayWA" style="z-index:300">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+      <div class="sheet-title">💬 Tu WhatsApp</div>
+    </div>
+    <div class="sheet-body">
+      <p style="font-size:14px;color:var(--muted);margin-bottom:20px;line-height:1.5">
+        Para recibir recordatorios por WhatsApp, ingresá tu número una sola vez. Lo guardamos y no te lo pedimos más.
+      </p>
+      <div class="form-group">
+        <label>Número de WhatsApp</label>
+        <input type="tel" id="waNumero" placeholder="+5493834755724" style="font-size:16px">
+        <div style="font-size:11px;color:var(--muted);margin-top:5px">Con código de país. Argentina: +549 + número sin el 0</div>
+      </div>
+      <button class="btn btn-primary" onclick="guardarNumeroWA()">
+        <i class="ti ti-device-floppy"></i> Guardar número
+      </button>
+      <button class="btn btn-secondary" onclick="cerrarOverlay('overlayWA')" style="margin-top:8px">Ahora no</button>
+    </div>
+  </div>
+</div>
+
 <!-- ══════════════════════════════════════
      OVERLAY: FORM NUEVO/EDITAR EVENTO
 ══════════════════════════════════════ -->
@@ -654,25 +678,39 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
       </div>
 
       <div class="form-group">
-        <label>Recordatorio</label>
-        <div style="display:flex;flex-direction:column;gap:8px">
-          <select id="eventoRecordatorio" onchange="toggleRecPersonalizado(this)">
-            <option value="">Sin recordatorio</option>
-            <option value="10">10 minutos antes</option>
-            <option value="30">30 minutos antes</option>
-            <option value="60">1 hora antes</option>
-            <option value="120">2 horas antes</option>
-            <option value="1440">1 día antes</option>
-            <option value="2880">2 días antes</option>
-            <option value="10080">1 semana antes</option>
-            <option value="custom">⚙️ Personalizado...</option>
-          </select>
-          <div id="recPersonalizadoWrap" style="display:none;background:#f0f6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:12px 14px">
-            <div style="font-size:11px;font-weight:700;color:#2563eb;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em">Quiero que avise a las...</div>
-            <input type="time" id="recHoraExacta" style="width:100%;padding:10px 12px;border:1.5px solid #bfdbfe;border-radius:8px;font-size:16px;font-family:Inter,sans-serif;color:#1a2940;background:#fff" onchange="calcularMinutosPersonalizado()">
-            <div style="font-size:11px;color:#64748b;margin-top:6px" id="recPersonalizadoHint">Ponés la hora del evento y esta hora de aviso, y calculo la diferencia</div>
-          </div>
+        <label>Cuándo avisar</label>
+        <select id="eventoRecordatorio" onchange="toggleRecPersonalizado(this)">
+          <option value="">Sin recordatorio</option>
+          <option value="10">10 minutos antes</option>
+          <option value="30">30 minutos antes</option>
+          <option value="60">1 hora antes</option>
+          <option value="120">2 horas antes</option>
+          <option value="1440">1 día antes</option>
+          <option value="2880">2 días antes</option>
+          <option value="10080">1 semana antes</option>
+          <option value="custom">⚙️ Hora exacta...</option>
+        </select>
+        <div id="recPersonalizadoWrap" style="display:none;background:#f0f6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:12px 14px;margin-top:8px">
+          <div style="font-size:11px;font-weight:700;color:#2563eb;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em">Avisar a las...</div>
+          <input type="time" id="recHoraExacta" style="width:100%;padding:10px 12px;border:1.5px solid #bfdbfe;border-radius:8px;font-size:16px;font-family:Inter,sans-serif;color:#1a2940;background:#fff" onchange="calcularMinutosPersonalizado()">
+          <div style="font-size:11px;color:#64748b;margin-top:6px" id="recPersonalizadoHint">Completá la hora del evento arriba primero</div>
         </div>
+      </div>
+
+      <div class="form-group">
+        <label>Cómo avisar</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="aviso-btn act" id="avisoPush" onclick="selAviso('push')" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid #2563eb;background:#eff6ff;color:#2563eb;font-size:13px;font-weight:700;font-family:Inter,sans-serif;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+            🔔 Notificación
+          </button>
+          <button type="button" class="aviso-btn" id="avisoWA" onclick="selAviso('whatsapp')" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid var(--border);background:var(--bg);color:var(--muted);font-size:13px;font-weight:700;font-family:Inter,sans-serif;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+            💬 WhatsApp
+          </button>
+          <button type="button" class="aviso-btn" id="avisoAmbos" onclick="selAviso('ambos')" style="width:100%;padding:10px;border-radius:10px;border:1.5px solid var(--border);background:var(--bg);color:var(--muted);font-size:13px;font-weight:700;font-family:Inter,sans-serif;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+            🔔💬 Ambos
+          </button>
+        </div>
+        <input type="hidden" id="eventoTipoAviso" value="push">
       </div>
 
       <div class="form-group">
@@ -680,14 +718,6 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
         <input type="text" id="eventoDesc" placeholder="Detalles adicionales...">
       </div>
 
-      <div class="form-group">
-        <label>WhatsApp para recordatorio</label>
-        <div style="display:flex;gap:8px;align-items:center">
-          <span style="font-size:20px">📱</span>
-          <input type="tel" id="eventoTelefono" placeholder="+549 381 123 4567" style="flex:1">
-        </div>
-        <div style="font-size:11px;color:var(--muted);margin-top:5px">Con código de país. Ej: +5493834755724</div>
-      </div>
 
       <button class="btn btn-primary" onclick="guardarEvento()">
         <i class="ti ti-device-floppy"></i> Guardar evento
@@ -817,6 +847,12 @@ function cargarDemoData() {
 async function mostrarApp() {
   if (sb && USER) await cargarDatos();
   checkNotifPermiso();
+  // Mostrar modal WA si no tiene número guardado
+  if (!CFG.wa_numero) {
+    setTimeout(() => {
+      document.getElementById('overlayWA').classList.add('open');
+    }, 1500);
+  }
   renderChips();
   renderCalendario();
   renderProximos();
@@ -872,6 +908,7 @@ async function cargarDatos() {
     if (cfgData) {
       CFG = { ...CFG, ...cfgData };
       if (cfgData.modalidades) MODALIDADES = JSON.parse(cfgData.modalidades);
+      if (cfgData.wa_numero) CFG.wa_numero = cfgData.wa_numero;
     }
 
     // Eventos
@@ -1194,7 +1231,8 @@ async function guardarEvento() {
     color:            selBtn.dataset.color,
     descripcion:      document.getElementById('eventoDesc').value.trim(),
     recordatorio_min: getRecordatorioMin(),
-    telefono: document.getElementById('eventoTelefono').value.trim().replace(/\s/g,'') || null,
+    telefono: CFG.wa_numero || null,
+    tipo_aviso: document.getElementById('eventoTipoAviso').value || 'push',
   };
 
   const id = document.getElementById('eventoId').value;
@@ -1496,6 +1534,37 @@ function calcularMinutosPersonalizado() {
     const h = Math.floor(diff/60), m = diff%60;
     hint.textContent = `✅ Avisará ${h}h${m>0?' '+m+'min':''} antes`;
   }
+}
+
+function selAviso(tipo) {
+  document.getElementById('eventoTipoAviso').value = tipo;
+  const btns = ['avisoPush','avisoWA','avisoAmbos'];
+  const tipos = ['push','whatsapp','ambos'];
+  btns.forEach((bid, i) => {
+    const btn = document.getElementById(bid);
+    const sel = tipos[i] === tipo;
+    btn.style.borderColor = sel ? '#2563eb' : 'var(--border)';
+    btn.style.background  = sel ? '#eff6ff' : 'var(--bg)';
+    btn.style.color       = sel ? '#2563eb' : 'var(--muted)';
+  });
+}
+
+async function guardarNumeroWA() {
+  const num = document.getElementById('waNumero').value.trim().replace(/\s/g,'');
+  if (!num || num.length < 10) { showToast('⚠️ Ingresá un número válido'); return; }
+  CFG.wa_numero = num;
+  if (sb && USER) {
+    await sb.from('agenda_config').upsert({
+      user_id: USER.id,
+      nombre: CFG.nombre,
+      sub: CFG.sub,
+      modalidades: JSON.stringify(MODALIDADES),
+      recordatorio_min: CFG.recordatorio_min,
+      wa_numero: num,
+    }, { onConflict: 'user_id' });
+  }
+  cerrarOverlay('overlayWA');
+  showToast('✅ Número guardado');
 }
 
 async function eliminarEventoRapido(id) {
