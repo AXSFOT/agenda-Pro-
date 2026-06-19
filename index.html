@@ -586,18 +586,7 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
                 <span class="toggle-slider"></span>
               </label>
             </div>
-            <div class="notif-row">
-              <div>
-                <div class="notif-label">Recordatorio por defecto</div>
-                <div class="notif-sub">Cuándo antes del evento querés que avise</div>
-              </div>
-            </div>
-            <div class="recordatorio-opts" id="recOpts" style="margin-top:10px">
-              <div class="rec-opt" data-min="60"    onclick="selRec(this)">1 hora antes</div>
-              <div class="rec-opt" data-min="1440"  onclick="selRec(this)">1 día antes</div>
-              <div class="rec-opt" data-min="2880"  onclick="selRec(this)">2 días antes</div>
-              <div class="rec-opt" data-min="10080" onclick="selRec(this)">1 semana antes</div>
-            </div>
+
           </div>
         </div>
 
@@ -689,6 +678,15 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
       <div class="form-group">
         <label>Descripción (opcional)</label>
         <input type="text" id="eventoDesc" placeholder="Detalles adicionales...">
+      </div>
+
+      <div class="form-group">
+        <label>WhatsApp para recordatorio</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span style="font-size:20px">📱</span>
+          <input type="tel" id="eventoTelefono" placeholder="+549 381 123 4567" style="flex:1">
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:5px">Con código de país. Ej: +5493834755724</div>
       </div>
 
       <button class="btn btn-primary" onclick="guardarEvento()">
@@ -1064,6 +1062,9 @@ function eventoCardHTML(e) {
         ${e.descripcion ? `<div class="evento-desc">${e.descripcion}</div>` : ''}
         <span class="evento-modal-badge" style="background:${e.color||'#2563eb'}">${e.modalidad}</span>
       </div>
+      <button onclick="event.stopPropagation();eliminarEventoRapido('${e.id}')" style="flex-shrink:0;width:32px;height:32px;border-radius:10px;border:1.5px solid #fee2e2;background:#fff5f5;color:#ef4444;font-size:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;align-self:center">
+        <i class="ti ti-trash"></i>
+      </button>
     </div>`;
 }
 
@@ -1193,6 +1194,7 @@ async function guardarEvento() {
     color:            selBtn.dataset.color,
     descripcion:      document.getElementById('eventoDesc').value.trim(),
     recordatorio_min: getRecordatorioMin(),
+    telefono: document.getElementById('eventoTelefono').value.trim().replace(/\s/g,'') || null,
   };
 
   const id = document.getElementById('eventoId').value;
@@ -1262,6 +1264,7 @@ function verEvento(id) {
     ${e.hora ? detalleRow('ti-clock', 'Hora', e.hora.slice(0,5) + ' hs') : ''}
     ${e.descripcion  ? detalleRow('ti-notes', 'Descripción', e.descripcion) : ''}
     ${e.recordatorio_min ? detalleRow('ti-bell', 'Recordatorio', recLabel(e.recordatorio_min)) : ''}
+    ${e.telefono ? detalleRow('ti-brand-whatsapp', 'WhatsApp', e.telefono) : ''}
     <div style="margin-top:20px;display:flex;gap:10px">
       <button class="btn btn-primary" style="flex:1" onclick="cerrarOverlay('overlayDetalle');abrirFormEvento(EVENTOS.find(x=>x.id==='${e.id}'))">
         <i class="ti ti-edit"></i> Editar
@@ -1493,6 +1496,17 @@ function calcularMinutosPersonalizado() {
     const h = Math.floor(diff/60), m = diff%60;
     hint.textContent = `✅ Avisará ${h}h${m>0?' '+m+'min':''} antes`;
   }
+}
+
+async function eliminarEventoRapido(id) {
+  if (!confirm('¿Eliminar este evento?')) return;
+  if (sb && USER) {
+    await sb.from('agenda_eventos').delete().eq('id', id);
+  }
+  EVENTOS = EVENTOS.filter(e => e.id !== id);
+  renderCalendario();
+  renderProximos();
+  showToast('🗑️ Evento eliminado');
 }
 
 function getRecordatorioMin() {
