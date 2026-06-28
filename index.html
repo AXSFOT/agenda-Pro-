@@ -421,6 +421,64 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 }
 
 /* ═══════════════════════════════════════
+   RESUMEN DEL DÍA
+═══════════════════════════════════════ */
+.resumen-overlay {
+  position: fixed; inset: 0; z-index: 400;
+  background: rgba(0,0,0,.5); backdrop-filter: blur(4px);
+  display: flex; align-items: flex-end; justify-content: center;
+  opacity: 0; pointer-events: none; transition: opacity .3s;
+}
+.resumen-overlay.open { opacity: 1; pointer-events: all; }
+.resumen-sheet {
+  background: #fff; border-radius: 24px 24px 0 0;
+  width: 100%; max-width: 520px; max-height: 85vh;
+  overflow-y: auto; padding-bottom: env(safe-area-inset-bottom, 16px);
+  transform: translateY(40px); transition: transform .3s;
+  box-shadow: 0 -8px 40px rgba(0,0,0,.2);
+}
+.resumen-overlay.open .resumen-sheet { transform: translateY(0); }
+.resumen-header {
+  background: linear-gradient(135deg, #1e3a5f, #2563eb);
+  border-radius: 24px 24px 0 0; padding: 20px 20px 16px;
+  color: #fff;
+}
+.resumen-fecha { font-size: 12px; opacity: .6; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .06em; }
+.resumen-titulo { font-size: 20px; font-weight: 800; }
+.resumen-subtitulo { font-size: 13px; opacity: .7; margin-top: 4px; }
+.resumen-body { padding: 16px 20px 8px; }
+.resumen-seccion-titulo {
+  font-size: 11px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .06em;
+  margin: 12px 0 8px;
+}
+.resumen-evento {
+  display: flex; gap: 12px; align-items: center;
+  padding: 10px 12px; border-radius: 12px;
+  background: var(--bg); margin-bottom: 6px;
+  border-left: 4px solid var(--accent2);
+}
+.resumen-evento-hora {
+  font-size: 13px; font-weight: 800; color: var(--text);
+  min-width: 44px; text-align: center;
+}
+.resumen-evento-info { flex: 1; }
+.resumen-evento-titulo { font-size: 13px; font-weight: 700; color: var(--text); }
+.resumen-evento-modal { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.resumen-empty {
+  text-align: center; padding: 20px; color: var(--muted);
+  font-size: 13px;
+}
+.resumen-empty span { font-size: 28px; display: block; margin-bottom: 8px; }
+.resumen-btn-cerrar {
+  width: calc(100% - 40px); margin: 8px 20px 16px;
+  padding: 13px; background: linear-gradient(135deg, #1e3a5f, #2563eb);
+  color: #fff; border: none; border-radius: 12px;
+  font-size: 14px; font-weight: 700; font-family: 'Inter', sans-serif;
+  cursor: pointer;
+}
+
+/* ═══════════════════════════════════════
    LOADING
 ═══════════════════════════════════════ */
 .loading-screen {
@@ -619,6 +677,21 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
+
+<!-- RESUMEN DEL DÍA -->
+<div class="resumen-overlay" id="resumenOverlay">
+  <div class="resumen-sheet">
+    <div class="resumen-header">
+      <div class="resumen-fecha" id="resumenFecha"></div>
+      <div class="resumen-titulo" id="resumenTitulo"></div>
+      <div class="resumen-subtitulo" id="resumenSubtitulo"></div>
+    </div>
+    <div class="resumen-body" id="resumenBody"></div>
+    <button class="resumen-btn-cerrar" onclick="cerrarResumen()">
+      <i class="ti ti-check"></i> Entendido, abrir agenda
+    </button>
+  </div>
+</div>
 
 <!-- MODAL NÚMERO WHATSAPP -->
 <div class="overlay" id="overlayWA" style="z-index:300">
@@ -859,6 +932,8 @@ async function mostrarApp() {
   renderConfigUI();
   show('app');
   document.getElementById('app').style.display = 'flex';
+  // Mostrar resumen del día al entrar
+  setTimeout(() => mostrarResumenDia(), 600);
 }
 
 /* ══════════════════════════════════════════════
@@ -1565,6 +1640,96 @@ async function guardarNumeroWA() {
   }
   cerrarOverlay('overlayWA');
   showToast('✅ Número guardado');
+}
+
+/* ══════════════════════════════════════════════
+   RESUMEN DEL DÍA
+══════════════════════════════════════════════ */
+function mostrarResumenDia() {
+  const hoy = toISO(new Date());
+  const manana = toISO(addDays(new Date(), 1));
+  const d = new Date();
+  const diasSemana = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+  const fechaStr = `${diasSemana[d.getDay()]} ${d.getDate()} de ${MESES[d.getMonth()]}`;
+
+  const eventosHoy = EVENTOS.filter(e => e.fecha === hoy)
+    .sort((a,b) => (a.hora||'').localeCompare(b.hora||''));
+  const eventosManana = EVENTOS.filter(e => e.fecha === manana)
+    .sort((a,b) => (a.hora||'').localeCompare(b.hora||''));
+  const proximosSemana = EVENTOS.filter(e => e.fecha > manana && e.fecha <= toISO(addDays(new Date(), 7)))
+    .sort((a,b) => a.fecha.localeCompare(b.fecha))
+    .slice(0, 5);
+
+  // Título dinámico
+  document.getElementById('resumenFecha').textContent = fechaStr;
+  if (eventosHoy.length === 0) {
+    document.getElementById('resumenTitulo').textContent = 'Sin eventos hoy 🌟';
+    document.getElementById('resumenSubtitulo').textContent = 'Podés revisar los próximos eventos';
+  } else if (eventosHoy.length === 1) {
+    document.getElementById('resumenTitulo').textContent = '1 evento hoy';
+    document.getElementById('resumenSubtitulo').textContent = eventosHoy[0].titulo;
+  } else {
+    document.getElementById('resumenTitulo').textContent = `${eventosHoy.length} eventos hoy`;
+    document.getElementById('resumenSubtitulo').textContent = 'Revisá el detalle abajo';
+  }
+
+  let html = '';
+
+  // Eventos de hoy
+  if (eventosHoy.length) {
+    html += `<div class="resumen-seccion-titulo">📅 Hoy</div>`;
+    html += eventosHoy.map(e => `
+      <div class="resumen-evento" style="border-left-color:${e.color||'#2563eb'}">
+        <div class="resumen-evento-hora">${e.hora ? e.hora.slice(0,5) : '—'}<br><span style="font-size:9px;color:var(--muted)">${e.hora ? 'hs' : 'todo día'}</span></div>
+        <div class="resumen-evento-info">
+          <div class="resumen-evento-titulo">${e.titulo}</div>
+          <div class="resumen-evento-modal">${e.modalidad}</div>
+        </div>
+      </div>`).join('');
+  } else {
+    html += `<div class="resumen-empty"><span>✅</span>No hay eventos para hoy</div>`;
+  }
+
+  // Eventos de mañana
+  if (eventosManana.length) {
+    html += `<div class="resumen-seccion-titulo">📆 Mañana</div>`;
+    html += eventosManana.map(e => `
+      <div class="resumen-evento" style="border-left-color:${e.color||'#2563eb'}">
+        <div class="resumen-evento-hora">${e.hora ? e.hora.slice(0,5) : '—'}<br><span style="font-size:9px;color:var(--muted)">${e.hora ? 'hs' : 'todo día'}</span></div>
+        <div class="resumen-evento-info">
+          <div class="resumen-evento-titulo">${e.titulo}</div>
+          <div class="resumen-evento-modal">${e.modalidad}</div>
+        </div>
+      </div>`).join('');
+  }
+
+  // Próximos 7 días
+  if (proximosSemana.length) {
+    html += `<div class="resumen-seccion-titulo">🗓️ Próximos 7 días</div>`;
+    html += proximosSemana.map(e => {
+      const fd = new Date(e.fecha + 'T12:00:00');
+      const fdStr = `${fd.getDate()} ${MESES[fd.getMonth()].slice(0,3)}`;
+      return `
+      <div class="resumen-evento" style="border-left-color:${e.color||'#2563eb'}">
+        <div class="resumen-evento-hora">${fdStr}<br><span style="font-size:9px;color:var(--muted)">${e.hora ? e.hora.slice(0,5) : 'todo día'}</span></div>
+        <div class="resumen-evento-info">
+          <div class="resumen-evento-titulo">${e.titulo}</div>
+          <div class="resumen-evento-modal">${e.modalidad}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  if (!eventosHoy.length && !eventosManana.length && !proximosSemana.length) {
+    html += `<div class="resumen-empty"><span>🎉</span>No hay eventos en los próximos 7 días</div>`;
+  }
+
+  document.getElementById('resumenBody').innerHTML = html;
+  document.getElementById('resumenOverlay').classList.add('open');
+}
+
+function cerrarResumen() {
+  document.getElementById('resumenOverlay').classList.remove('open');
 }
 
 async function eliminarEventoRapido(id) {
